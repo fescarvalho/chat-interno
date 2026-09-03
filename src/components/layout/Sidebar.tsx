@@ -107,6 +107,13 @@ export function Sidebar() {
           )}
         </div>
       </ScrollArea>
+
+      {/* Footer da Sidebar com Versão */}
+      <div className="p-3 border-t border-white/10 text-center">
+        <span className="text-[10px] font-medium text-slate-500 uppercase tracking-widest">
+          ChatPC v1.1.4 (Auto-Atualizado!)
+        </span>
+      </div>
     </aside>
   );
 }
