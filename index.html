@@ -7,6 +7,14 @@
     <title>ChatPC</title>
   </head>
   <body>
+    <script>
+      window.addEventListener('error', (event) => {
+        document.body.innerHTML += '<div style="color:red; z-index:9999; padding: 20px; background:white; position:absolute; top:0; left:0; width:100%; height:100%; overflow:auto;"><h2>Erro Crítico (Global):</h2><pre style="white-space: pre-wrap;">' + (event.error?.stack || event.message) + '</pre></div>';
+      });
+      window.addEventListener('unhandledrejection', (event) => {
+        document.body.innerHTML += '<div style="color:red; z-index:9999; padding: 20px; background:white; position:absolute; top:0; left:0; width:100%; height:100%; overflow:auto;"><h2>Erro Crítico (Promise):</h2><pre style="white-space: pre-wrap;">' + (event.reason?.stack || event.reason) + '</pre></div>';
+      });
+    </script>
     <div id="app"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
