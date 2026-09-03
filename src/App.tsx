@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { check } from '@tauri-apps/plugin-updater';
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ChatArea } from "@/components/layout/ChatArea";
 import { AuthScreen } from "@/components/auth/AuthScreen";
@@ -22,6 +23,20 @@ function App() {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
+
+    // Verifica atualizações
+    const checkForUpdates = async () => {
+      try {
+        const update = await check();
+        if (update) {
+          console.log(`Atualização encontrada: ${update.version}. Instalando...`);
+          await update.downloadAndInstall();
+        }
+      } catch (error) {
+        console.error('Erro ao verificar atualizações:', error);
+      }
+    };
+    checkForUpdates();
 
     return () => subscription.unsubscribe();
   }, [setSession]);
