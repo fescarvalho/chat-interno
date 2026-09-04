@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "ChatPC",
-  "version": "1.1.15",
+  "version": "1.2.0",
   "identifier": "com.chatpc.app",
   "build": {
     "frontendDist": "../dist",
@@ -40,7 +40,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "RWTB0YhiMJrOHNKs4xhD+Ld75PKFf0u5apcQkA81OaTD5kaXx1thpY/c",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM5MjUyN0M5N0Q5M0I2N0YKUldSL3RwTjl5U2NsT2QrL20yU01WNnRtd00rLzk3NWZFZkJqSW9maXRIR2V5WDhBTS9jd2xLQlYK",
       "endpoints": [
         "https://github.com/fescarvalho/chat-interno/releases/latest/download/latest.json"
       ]
