@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useChatStore } from '@/stores/useChatStore';
 import { useAuthStore } from '@/stores/useAuthStore';
-import { isPermissionGranted, requestPermission, sendNotification, onAction } from '@tauri-apps/plugin-notification';
+import { isPermissionGranted, requestPermission, sendNotification, onAction, registerActionTypes } from '@tauri-apps/plugin-notification';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export function useRealtimeMessages() {
@@ -23,6 +23,12 @@ export function useRealtimeMessages() {
         }
 
         if (permissionGranted) {
+          // Registra o tipo de ação para que o Windows reconheça o clique na notificação
+          await registerActionTypes([{
+            id: 'open-chat',
+            actions: []
+          }]);
+
           // Escuta quando o usuário CLICAR na notificação do Windows
           unlistenAction = await onAction(async (notification: any) => {
             // Traz a janela do app para a frente!
@@ -30,10 +36,11 @@ export function useRealtimeMessages() {
             await getCurrentWindow().show();
             await getCurrentWindow().setFocus();
             
-            // O actionTypeId vai conter o ID do rementente (sender_id)
-            if (notification.actionTypeId) {
+            // O sender_id vem no campo extra da notificação
+            const senderId = notification?.extra?.senderId;
+            if (senderId) {
               const state = useChatStore.getState();
-              const sender = state.usersList.find(u => u.id === notification.actionTypeId);
+              const sender = state.usersList.find(u => u.id === senderId);
               if (sender && state.user) {
                 state.startDirectChat(state.user.id, sender);
               }
@@ -111,7 +118,8 @@ export function useRealtimeMessages() {
                   title: `Nova mensagem de ${senderName}`,
                   body: bodyText,
                   icon: "default",
-                  actionTypeId: newMessage.sender_id // Guardamos o ID do remetente aqui para o clique!
+                  actionTypeId: 'open-chat',
+                  extra: { senderId: newMessage.sender_id }
                 });
               }
             } catch (err) {
