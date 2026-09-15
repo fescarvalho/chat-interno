@@ -8,6 +8,15 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
+        // Quando o usuário clica na notificação do Windows, o sistema tenta abrir uma nova
+        // instância do app. Este plugin intercepta isso e restaura a janela existente.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .setup(|app| {
             // 1. Cria a opção "Sair" para o menu do relógio
             let quit_i = MenuItem::with_id(app, "quit", "Sair do ChatPC", true, None::<&str>)?;

@@ -2,16 +2,13 @@ import { useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useChatStore } from '@/stores/useChatStore';
 import { useAuthStore } from '@/stores/useAuthStore';
-import { isPermissionGranted, requestPermission, sendNotification, onAction, registerActionTypes } from '@tauri-apps/plugin-notification';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 
 export function useRealtimeMessages() {
   const { addMessage, openTabs } = useChatStore();
   const { user } = useAuthStore();
 
   useEffect(() => {
-    let unlistenAction: any;
-    
     // Pede permissão do sistema para Notificações, se ainda não tiver
     const setupNotifications = async () => {
       // Como esse código roda também na Web, envolvemos em try/catch pois o plugin Tauri só existe no Desktop
@@ -20,32 +17,6 @@ export function useRealtimeMessages() {
         if (!permissionGranted) {
           const permission = await requestPermission();
           permissionGranted = permission === 'granted';
-        }
-
-        if (permissionGranted) {
-          // Registra o tipo de ação para que o Windows reconheça o clique na notificação
-          await registerActionTypes([{
-            id: 'open-chat',
-            actions: []
-          }]);
-
-          // Escuta quando o usuário CLICAR na notificação do Windows
-          unlistenAction = await onAction(async (notification: any) => {
-            // Traz a janela do app para a frente!
-            await getCurrentWindow().unminimize();
-            await getCurrentWindow().show();
-            await getCurrentWindow().setFocus();
-            
-            // O sender_id vem no campo extra da notificação
-            const senderId = notification?.extra?.senderId;
-            if (senderId) {
-              const state = useChatStore.getState();
-              const sender = state.usersList.find(u => u.id === senderId);
-              if (sender && state.user) {
-                state.startDirectChat(state.user.id, sender);
-              }
-            }
-          });
         }
       } catch (err) {
         // Ignora o erro se estiver rodando no navegador Web (npx vite dev)
@@ -117,9 +88,6 @@ export function useRealtimeMessages() {
                 sendNotification({
                   title: `Nova mensagem de ${senderName}`,
                   body: bodyText,
-                  icon: "default",
-                  actionTypeId: 'open-chat',
-                  extra: { senderId: newMessage.sender_id }
                 });
               }
             } catch (err) {
@@ -132,7 +100,6 @@ export function useRealtimeMessages() {
 
     return () => {
       supabase.removeChannel(channel);
-      if (unlistenAction) unlistenAction();
     };
   }, [addMessage, user]);
 }
