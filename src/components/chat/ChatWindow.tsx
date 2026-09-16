@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import EmojiPicker, { EmojiClickData } from "emoji-picker-react";
 import { useChatStore, type ChatSession } from "@/stores/useChatStore";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { supabase } from "@/lib/supabase";
@@ -7,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Send, Phone, Video, MoreVertical, Paperclip, FileIcon, Loader2, Share2 } from "lucide-react";
+import { Send, Phone, Video, MoreVertical, Paperclip, FileIcon, Loader2, Share2, Smile } from "lucide-react";
 import { LinkPreview } from "@/components/chat/LinkPreview";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +20,7 @@ export function ChatWindow({ chat }: ChatWindowProps) {
   const [text, setText] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   
   // Estado para o Indicador de Digitando
   const [typingUser, setTypingUser] = useState<string | null>(null);
@@ -136,7 +138,12 @@ export function ChatWindow({ chat }: ChatWindowProps) {
     
     const content = text;
     setText(""); // Limpa imediatamente
+    setShowEmojiPicker(false);
     await sendMessage(content);
+  };
+
+  const onEmojiClick = (emojiData: EmojiClickData) => {
+    setText((prev) => prev + emojiData.emoji);
   };
 
   const handleFileUpload = async (files: FileList | File[]) => {
@@ -164,12 +171,24 @@ export function ChatWindow({ chat }: ChatWindowProps) {
     }
   };
 
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+      // Prevent default to avoid pasting text if we are handling files (or maybe just handle files)
+      const files = Array.from(e.clipboardData.files);
+      if (files.length > 0) {
+        e.preventDefault();
+        await handleFileUpload(files);
+      }
+    }
+  };
+
   return (
     <div 
       className="flex flex-col h-full flex-1 min-h-0 bg-background relative"
       onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
       onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
       onDrop={onDrop}
+      onPaste={handlePaste}
     >
       {/* Overlay de Drag & Drop */}
       {isDragging && (
@@ -297,10 +316,19 @@ export function ChatWindow({ chat }: ChatWindowProps) {
       </ScrollArea>
 
       {/* Input de Mensagem */}
-      <div className="p-4 bg-background border-t">
+      <div className="p-4 bg-background border-t relative">
+        {showEmojiPicker && (
+          <div className="absolute bottom-[80px] left-4 z-50 shadow-xl rounded-xl border bg-background">
+            <EmojiPicker 
+              onEmojiClick={onEmojiClick}
+              autoFocusSearch={false}
+              theme="light"
+            />
+          </div>
+        )}
         <form 
           onSubmit={handleSend}
-          className="max-w-4xl mx-auto flex items-end gap-2 bg-muted/50 p-2 rounded-2xl border focus-within:ring-1 ring-ring/50 transition-shadow"
+          className="max-w-4xl mx-auto flex items-end gap-2 bg-muted/50 p-2 rounded-2xl border focus-within:ring-1 ring-ring/50 transition-shadow relative"
         >
           <input 
             type="file" 
@@ -320,6 +348,17 @@ export function ChatWindow({ chat }: ChatWindowProps) {
             {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Paperclip className="h-5 w-5" />}
           </Button>
           
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="rounded-full shrink-0 text-muted-foreground hover:text-foreground"
+            onClick={() => setShowEmojiPicker((prev) => !prev)}
+            disabled={isUploading}
+          >
+            <Smile className="h-5 w-5" />
+          </Button>
+
           <Input 
             value={text}
             onChange={handleTextChange}
