@@ -2,13 +2,16 @@ import { useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useChatStore } from '@/stores/useChatStore';
 import { useAuthStore } from '@/stores/useAuthStore';
-import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
+import { isPermissionGranted, requestPermission, sendNotification, onAction } from '@tauri-apps/plugin-notification';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export function useRealtimeMessages() {
   const { addMessage, openTabs } = useChatStore();
   const { user } = useAuthStore();
 
   useEffect(() => {
+    let unlistenNotif: (() => void) | undefined;
+
     // Pede permissão do sistema para Notificações, se ainda não tiver
     const setupNotifications = async () => {
       // Como esse código roda também na Web, envolvemos em try/catch pois o plugin Tauri só existe no Desktop
@@ -17,6 +20,14 @@ export function useRealtimeMessages() {
         if (!permissionGranted) {
           const permission = await requestPermission();
           permissionGranted = permission === 'granted';
+        }
+
+        if (permissionGranted) {
+          unlistenNotif = await onAction((_action) => {
+            const appWindow = getCurrentWindow();
+            appWindow.unminimize().catch(() => {});
+            appWindow.setFocus().catch(() => {});
+          });
         }
       } catch (err) {
         // Ignora o erro se estiver rodando no navegador Web (npx vite dev)
@@ -100,6 +111,7 @@ export function useRealtimeMessages() {
 
     return () => {
       supabase.removeChannel(channel);
+      if (unlistenNotif) unlistenNotif();
     };
   }, [addMessage, user]);
 }
