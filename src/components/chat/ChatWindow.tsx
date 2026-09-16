@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import EmojiPicker, { EmojiClickData } from "emoji-picker-react";
+import EmojiPicker, { type EmojiClickData } from "emoji-picker-react";
 import { useChatStore, type ChatSession } from "@/stores/useChatStore";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { supabase } from "@/lib/supabase";
