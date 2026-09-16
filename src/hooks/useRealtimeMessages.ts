@@ -23,10 +23,27 @@ export function useRealtimeMessages() {
         }
 
         if (permissionGranted) {
-          unlistenNotif = await onAction((_action) => {
+          unlistenNotif = await onAction((notification) => {
             const appWindow = getCurrentWindow();
+            appWindow.show().catch(() => {});
             appWindow.unminimize().catch(() => {});
             appWindow.setFocus().catch(() => {});
+
+            const extra = notification.extra as Record<string, any> | undefined;
+            if (extra?.chat_id) {
+              const state = useChatStore.getState();
+              const authState = useAuthStore.getState();
+              
+              const existingTab = state.openTabs.find(t => t.id === extra.chat_id);
+              if (existingTab) {
+                state.setActiveTab(extra.chat_id);
+              } else if (extra.sender_id && authState.user) {
+                const sender = state.usersList.find(u => u.id === extra.sender_id);
+                if (sender) {
+                  state.startDirectChat(authState.user.id, sender);
+                }
+              }
+            }
           });
         }
       } catch (err) {
@@ -99,6 +116,10 @@ export function useRealtimeMessages() {
                 sendNotification({
                   title: `Nova mensagem de ${senderName}`,
                   body: bodyText,
+                  extra: {
+                    chat_id: newMessage.chat_id,
+                    sender_id: newMessage.sender_id
+                  }
                 });
               }
             } catch (err) {
