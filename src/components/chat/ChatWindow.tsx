@@ -282,7 +282,13 @@ export function ChatWindow({ chat }: ChatWindowProps) {
                 )}
                 
                 {/* Texto da mensagem */}
-                {msg.content && <span>{msg.content}</span>}
+                {msg.content && (
+                  <span className={cn(
+                    /^[\u{1F300}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}\s]+$/u.test(msg.content) ? "text-5xl my-2" : ""
+                  )}>
+                    {msg.content}
+                  </span>
+                )}
                 
                 {/* Pré-visualização de Link (se houver) */}
                 {msg.content && (() => {
