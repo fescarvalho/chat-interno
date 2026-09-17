@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useChatStore } from '@/stores/useChatStore';
 import { useAuthStore } from '@/stores/useAuthStore';
-import { isPermissionGranted, requestPermission, sendNotification, onAction } from '@tauri-apps/plugin-notification';
+import { isPermissionGranted, requestPermission, sendNotification, onAction, registerActionTypes } from '@tauri-apps/plugin-notification';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export function useRealtimeMessages() {
@@ -23,6 +23,14 @@ export function useRealtimeMessages() {
         }
 
         if (permissionGranted) {
+          await registerActionTypes([{
+            id: 'open_chat',
+            actions: [{
+              id: 'open',
+              title: 'Abrir Chat'
+            }]
+          }]);
+
           unlistenNotif = await onAction((notification) => {
             const appWindow = getCurrentWindow();
             appWindow.show().catch(() => {});
@@ -116,6 +124,7 @@ export function useRealtimeMessages() {
                 sendNotification({
                   title: `Nova mensagem de ${senderName}`,
                   body: bodyText,
+                  actionTypeId: 'open_chat',
                   extra: {
                     chat_id: newMessage.chat_id,
                     sender_id: newMessage.sender_id
