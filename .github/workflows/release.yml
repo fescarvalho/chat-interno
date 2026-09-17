@@ -11,6 +11,8 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
+      # Serializa os jobs para evitar race condition no upload de assets para o GitHub Release
+      max-parallel: 1
       matrix:
         include:
           - platform: 'macos-latest'
