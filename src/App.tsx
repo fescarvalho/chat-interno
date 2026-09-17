@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { check } from '@tauri-apps/plugin-updater';
+import { useEffect, useState } from "react";
+import { check } from "@tauri-apps/plugin-updater";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ChatArea } from "@/components/layout/ChatArea";
 import { AuthScreen } from "@/components/auth/AuthScreen";
@@ -7,9 +7,14 @@ import { useAuthStore } from "@/stores/useAuthStore";
 import { supabase } from "@/lib/supabase";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { UpdateDialog } from "@/components/UpdateDialog";
 
 function App() {
   const { session, setSession, isLoading } = useAuthStore();
+  const [pendingUpdate, setPendingUpdate] = useState<{
+    version: string;
+    install: () => Promise<void>;
+  } | null>(null);
 
   useEffect(() => {
     // Busca a sessão inicial
@@ -17,23 +22,27 @@ function App() {
       setSession(session);
     });
 
-    // Escuta mudanças (login, logout)
+    // Escuta mudanças de auth (login, logout)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
 
-    // Verifica atualizações
+    // Verifica atualizações — exibe diálogo de confirmação em vez de instalar silenciosamente
     const checkForUpdates = async () => {
       try {
         const update = await check();
         if (update) {
-          console.log(`Atualização encontrada: ${update.version}. Instalando...`);
-          await update.downloadAndInstall();
+          setPendingUpdate({
+            version: update.version,
+            install: async () => {
+              await update.downloadAndInstall();
+            },
+          });
         }
       } catch (error) {
-        console.error('Erro ao verificar atualizações:', error);
+        console.error("Erro ao verificar atualizações:", error);
       }
     };
     checkForUpdates();
@@ -42,7 +51,11 @@ function App() {
   }, [setSession]);
 
   if (isLoading) {
-    return <div className="flex h-screen items-center justify-center bg-background text-foreground">Carregando...</div>;
+    return (
+      <div className="flex h-screen items-center justify-center bg-background text-foreground">
+        Carregando...
+      </div>
+    );
   }
 
   if (!session) {
@@ -55,12 +68,21 @@ function App() {
         <div className="flex h-screen bg-background text-foreground overflow-hidden">
           {/* Barra lateral */}
           <Sidebar />
-          
+
           {/* Área principal: abas de chat */}
           <main className="flex-1 flex flex-col min-w-0">
             <ChatArea />
           </main>
         </div>
+
+        {/* Diálogo de atualização — só aparece quando há uma versão nova */}
+        {pendingUpdate && (
+          <UpdateDialog
+            version={pendingUpdate.version}
+            onConfirm={pendingUpdate.install}
+            onDismiss={() => setPendingUpdate(null)}
+          />
+        )}
       </TooltipProvider>
     </ErrorBoundary>
   );
