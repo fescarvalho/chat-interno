@@ -31,9 +31,16 @@ import {
   Pin,
   PinOff,
   UploadCloud,
+  BellRing,
+  Clock,
+  FolderOpen,
 } from "lucide-react";
 import { LinkPreview } from "@/components/chat/LinkPreview";
 import { ImageLightbox } from "@/components/chat/ImageLightbox";
+import { WindowsPathPreview } from "@/components/chat/WindowsPathPreview";
+import { ScheduleReminderModal } from "@/components/chat/ScheduleReminderModal";
+import { playNudgeSound } from "@/lib/sound";
+import { sendNotification } from "@tauri-apps/plugin-notification";
 import { cn } from "@/lib/utils";
 
 // ─── Hook: detecta dark mode do sistema ───────────────────────────────────────
@@ -81,7 +88,30 @@ export function ChatWindow({ chat }: ChatWindowProps) {
     }
   });
 
+  // Estados de Chamar Atenção (Nudge)
+  const [nudgeCooldown, setNudgeCooldown] = useState(0);
+  const [isNudging, setIsNudging] = useState(false);
+  const [nudgeAlertUser, setNudgeAlertUser] = useState<string | null>(null);
+
+  // Estados de Lembretes e Toast
+  const [reminderTargetMessage, setReminderTargetMessage] = useState<Message | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (text: string) => {
+    setToastMessage(text);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
   const dragCounterRef = useRef(0);
+
+  // Timer de cooldown para não spammar o chamado de atenção
+  useEffect(() => {
+    if (nudgeCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setNudgeCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [nudgeCooldown]);
 
   // Atualiza as mensagens fixadas ao alternar de chat
   useEffect(() => {
@@ -142,7 +172,7 @@ export function ChatWindow({ chat }: ChatWindowProps) {
     setShowEmojiPicker(false);
   }, [chat.id, scrollToBottom]);
 
-  // ── Canal de "digitando" via Supabase Broadcast ───────────────────────────
+  // ── Canal de Broadcast em tempo real (Digitando + Chamar Atenção) ────────
   useEffect(() => {
     if (!user) return;
 
@@ -159,6 +189,23 @@ export function ChatWindow({ chat }: ChatWindowProps) {
           () => setTypingUser(null),
           3000
         );
+      })
+      .on("broadcast", { event: "nudge" }, (payload) => {
+        // Efeito sonoro imediato
+        playNudgeSound();
+        // Efeito de tremor na janela
+        setIsNudging(true);
+        setNudgeAlertUser(payload.payload.sender_name || "Um colega");
+        setTimeout(() => setIsNudging(false), 1200);
+        setTimeout(() => setNudgeAlertUser(null), 6000);
+
+        // Notificação nativa do Windows
+        try {
+          sendNotification({
+            title: "⚠️ Chamado de Urgência!",
+            body: `${payload.payload.sender_name || "Um colega"} chamou sua atenção no ChatPC!`,
+          });
+        } catch {}
       })
       .subscribe();
 
@@ -268,6 +315,31 @@ export function ChatWindow({ chat }: ChatWindowProps) {
     });
 
     if (error) console.error("Erro ao enviar mensagem:", error);
+  };
+
+  // ── Chamar Atenção / Urgência (Nudge) ────────────────────────────────────
+  const handleSendNudge = async () => {
+    if (nudgeCooldown > 0 || !user || !channelRef.current) return;
+    setNudgeCooldown(30);
+    playNudgeSound();
+    setIsNudging(true);
+    setTimeout(() => setIsNudging(false), 800);
+
+    try {
+      channelRef.current.send({
+        type: "broadcast",
+        event: "nudge",
+        payload: {
+          sender_id: user.id,
+          sender_name: currentUserProfile?.name || "Alguém",
+        },
+      });
+    } catch (err) {
+      console.error("Erro ao emitir nudge:", err);
+    }
+
+    await sendMessage("🔔 Chamou sua atenção com urgência!");
+    showToast("Atenção chamada com sucesso! 🔔");
   };
 
   const shareWhatsApp = async (fileUrl: string, fileName: string) => {
@@ -453,7 +525,10 @@ export function ChatWindow({ chat }: ChatWindowProps) {
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div
-      className="flex flex-col h-full flex-1 min-h-0 bg-background relative"
+      className={cn(
+        "flex flex-col h-full flex-1 min-h-0 bg-background relative overflow-hidden",
+        isNudging && "animate-nudge"
+      )}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
@@ -482,6 +557,22 @@ export function ChatWindow({ chat }: ChatWindowProps) {
         </div>
       )}
 
+      {/* ── Alerta de Chamar Atenção Recebido ────────────────────────────── */}
+      {nudgeAlertUser && (
+        <div className="bg-destructive text-destructive-foreground px-4 py-2.5 flex items-center justify-between text-xs font-semibold shadow-md animate-bounce z-30 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <BellRing className="h-4 w-4 animate-spin flex-shrink-0" />
+            <span>⚠️ {nudgeAlertUser.toUpperCase()} CHAMOU SUA ATENÇÃO COM URGÊNCIA!</span>
+          </div>
+          <button
+            onClick={() => setNudgeAlertUser(null)}
+            className="p-1 hover:bg-black/20 rounded transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div className="h-16 flex items-center justify-between px-6 border-b bg-background z-10 shadow-sm flex-shrink-0">
         <div className="flex items-center gap-3">
@@ -498,6 +589,28 @@ export function ChatWindow({ chat }: ChatWindowProps) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Botão Chamar Atenção / Urgência */}
+          <Button
+            variant={nudgeCooldown > 0 ? "outline" : "destructive"}
+            size="sm"
+            onClick={handleSendNudge}
+            disabled={nudgeCooldown > 0}
+            className={cn(
+              "gap-1.5 text-xs h-8 px-2.5 font-medium transition-all shadow-sm",
+              nudgeCooldown === 0 && "hover:scale-105 active:scale-95"
+            )}
+            title={
+              nudgeCooldown > 0
+                ? `Aguarde ${nudgeCooldown}s para chamar atenção novamente`
+                : "Chamar atenção / Urgência (faz tremer a tela e toca alarme sonoro)"
+            }
+          >
+            <BellRing className={cn("h-3.5 w-3.5", nudgeCooldown === 0 && "animate-pulse")} />
+            <span className="hidden sm:inline">
+              {nudgeCooldown > 0 ? `${nudgeCooldown}s` : "Chamar Atenção"}
+            </span>
+          </Button>
+
           <Button variant="ghost" size="icon">
             <Phone className="h-4 w-4" />
           </Button>
@@ -618,7 +731,7 @@ export function ChatWindow({ chat }: ChatWindowProps) {
                   <div
                     className={cn(
                       "absolute top-1 flex items-center gap-0.5 p-1 rounded-full bg-background/90 backdrop-blur border border-border shadow-md opacity-0 group-hover:opacity-100 transition-opacity z-10",
-                      isMe ? "-left-24" : "-right-24"
+                      isMe ? "-left-32" : "-right-32"
                     )}
                   >
                     {/* Botão de responder */}
@@ -675,6 +788,15 @@ export function ChatWindow({ chat }: ChatWindowProps) {
                           pinnedIds.has(msg.id) && "fill-amber-500"
                         )}
                       />
+                    </button>
+
+                    {/* Botão de Lembrar-me disso (Alarme / Tarefa) */}
+                    <button
+                      onClick={() => setReminderTargetMessage(msg)}
+                      title="Lembrar-me desta mensagem (Alarme / Tarefa)"
+                      className="p-1 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <Clock className="h-3.5 w-3.5" />
                     </button>
                   </div>
 
@@ -794,6 +916,11 @@ export function ChatWindow({ chat }: ChatWindowProps) {
                           <LinkPreview url={urlMatch[0]} />
                         ) : null;
                       })()}
+
+                    {/* Detector de pastas locais e de rede Windows (\\servidor\pasta ou C:\pasta) */}
+                    {msg.content && (
+                      <WindowsPathPreview content={msg.content} />
+                    )}
 
                     {/* Horário + indicador de leitura + pin */}
                     <span
@@ -952,6 +1079,25 @@ export function ChatWindow({ chat }: ChatWindowProps) {
           </Button>
         </form>
       </div>
+
+      {/* ── Modal de Agendar Lembrete ───────────────────────────────────────── */}
+      {reminderTargetMessage && (
+        <ScheduleReminderModal
+          chatId={chat.id}
+          chatName={chat.name || "Chat"}
+          message={reminderTargetMessage}
+          onClose={() => setReminderTargetMessage(null)}
+          onSuccess={(feedbackText) => showToast(feedbackText)}
+        />
+      )}
+
+      {/* ── Toast de Feedback Rápido ────────────────────────────────────────── */}
+      {toastMessage && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-foreground text-background px-4 py-2 rounded-full text-xs font-medium shadow-xl flex items-center gap-2 z-50 animate-in fade-in slide-in-from-bottom-2">
+          <Check className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
     </div>
   );
 }

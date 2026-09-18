@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import type { UserProfile } from "@/stores/useChatStore";
 
-const APP_VERSION = "1.2.9";
+const APP_VERSION = "1.3.0";
 
 // Mapeamento de status para cor + label
 const STATUS_CONFIG: Record<string, { color: string; label: string }> = {

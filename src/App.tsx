@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { UpdateDialog } from "@/components/UpdateDialog";
+import { ReminderAlert } from "@/components/ReminderAlert";
 
 function App() {
   const { session, setSession, isLoading } = useAuthStore();
@@ -74,6 +75,9 @@ function App() {
             <ChatArea />
           </main>
         </div>
+
+        {/* Alertas de lembretes agendados */}
+        <ReminderAlert />
 
         {/* Diálogo de atualização — só aparece quando há uma versão nova */}
         {pendingUpdate && (
