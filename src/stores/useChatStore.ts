@@ -53,6 +53,8 @@ interface ChatState {
   closeChat: (chatId: string) => void;
   setActiveTab: (chatId: string) => void;
   addMessage: (chatId: string, message: Message) => void;
+  deleteMessage: (chatId: string, messageId: string) => void;
+  deleteMessageById: (messageId: string) => void;
   updateUserStatus: (userId: string, status: string) => void;
 
   // Controle de não-lidas
@@ -123,6 +125,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }
           : tab
       ),
+    })),
+
+  deleteMessage: (chatId, messageId) =>
+    set((state) => ({
+      openTabs: state.openTabs.map((tab) =>
+        tab.id === chatId
+          ? {
+              ...tab,
+              messages: tab.messages.filter((m) => m.id !== messageId),
+            }
+          : tab
+      ),
+    })),
+
+  deleteMessageById: (messageId) =>
+    set((state) => ({
+      openTabs: state.openTabs.map((tab) => ({
+        ...tab,
+        messages: tab.messages.filter((m) => m.id !== messageId),
+      })),
     })),
 
   updateUserStatus: (userId, status) =>

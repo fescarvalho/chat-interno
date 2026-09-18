@@ -131,6 +131,16 @@ export function useRealtimeMessages() {
           }
         }
       )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'messages' },
+        (payload) => {
+          const deletedId = (payload.old as { id?: string })?.id;
+          if (deletedId) {
+            useChatStore.getState().deleteMessageById(deletedId);
+          }
+        }
+      )
       .subscribe();
 
     // ── Canal 2: Status dos usuários em tempo real ───────────────────────────

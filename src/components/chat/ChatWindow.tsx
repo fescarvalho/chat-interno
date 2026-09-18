@@ -34,6 +34,7 @@ import {
   BellRing,
   Clock,
   FolderOpen,
+  Trash2,
 } from "lucide-react";
 import { LinkPreview } from "@/components/chat/LinkPreview";
 import { ImageLightbox } from "@/components/chat/ImageLightbox";
@@ -93,8 +94,9 @@ export function ChatWindow({ chat }: ChatWindowProps) {
   const [isNudging, setIsNudging] = useState(false);
   const [nudgeAlertUser, setNudgeAlertUser] = useState<string | null>(null);
 
-  // Estados de Lembretes e Toast
+  // Estados de Lembretes, Exclusão e Toast
   const [reminderTargetMessage, setReminderTargetMessage] = useState<Message | null>(null);
+  const [messageToDelete, setMessageToDelete] = useState<Message | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (text: string) => {
@@ -206,6 +208,18 @@ export function ChatWindow({ chat }: ChatWindowProps) {
             body: `${payload.payload.sender_name || "Um colega"} chamou sua atenção no ChatPC!`,
           });
         } catch {}
+      })
+      .on("broadcast", { event: "delete_message" }, (payload) => {
+        const deletedId = payload.payload?.message_id;
+        if (deletedId) {
+          useChatStore.getState().deleteMessage(chat.id, deletedId);
+          setPinnedIds((prev) => {
+            if (!prev.has(deletedId)) return prev;
+            const next = new Set(prev);
+            next.delete(deletedId);
+            return next;
+          });
+        }
       })
       .subscribe();
 
@@ -340,6 +354,41 @@ export function ChatWindow({ chat }: ChatWindowProps) {
 
     await sendMessage("🔔 Chamou sua atenção com urgência!");
     showToast("Atenção chamada com sucesso! 🔔");
+  };
+
+  // ── Apagar Mensagem para Todos ───────────────────────────────────────────
+  const handleDeleteMessage = async (msg: Message) => {
+    // 1. Remove localmente de imediato (optimistic)
+    useChatStore.getState().deleteMessage(chat.id, msg.id);
+
+    // 2. Se estava fixada, remove das fixadas
+    if (pinnedIds.has(msg.id)) {
+      togglePinMessage(msg.id);
+    }
+
+    // 3. Emite broadcast para os demais no chat em tempo real
+    try {
+      channelRef.current?.send({
+        type: "broadcast",
+        event: "delete_message",
+        payload: { message_id: msg.id, chat_id: chat.id },
+      });
+    } catch (err) {
+      console.warn("Erro ao emitir broadcast de exclusão:", err);
+    }
+
+    setMessageToDelete(null);
+    showToast("Mensagem apagada para todos.");
+
+    // 4. Deleta leituras e mensagem no banco Supabase
+    try {
+      await supabase.from("message_reads").delete().eq("message_id", msg.id);
+    } catch {}
+
+    const { error } = await supabase.from("messages").delete().eq("id", msg.id);
+    if (error) {
+      console.warn("Erro ao deletar mensagem no banco:", error);
+    }
   };
 
   const shareWhatsApp = async (fileUrl: string, fileName: string) => {
@@ -731,7 +780,7 @@ export function ChatWindow({ chat }: ChatWindowProps) {
                   <div
                     className={cn(
                       "absolute top-1 flex items-center gap-0.5 p-1 rounded-full bg-background/90 backdrop-blur border border-border shadow-md opacity-0 group-hover:opacity-100 transition-opacity z-10",
-                      isMe ? "-left-32" : "-right-32"
+                      isMe ? "-left-40" : "-right-32"
                     )}
                   >
                     {/* Botão de responder */}
@@ -798,6 +847,17 @@ export function ChatWindow({ chat }: ChatWindowProps) {
                     >
                       <Clock className="h-3.5 w-3.5" />
                     </button>
+
+                    {/* Botão de Apagar Mensagem para todos (somente quem enviou) */}
+                    {isMe && (
+                      <button
+                        onClick={() => setMessageToDelete(msg)}
+                        title="Apagar mensagem para todos"
+                        className="p-1 rounded-full hover:bg-destructive/15 text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
 
                   {/* Balão da mensagem */}
@@ -1089,6 +1149,58 @@ export function ChatWindow({ chat }: ChatWindowProps) {
           onClose={() => setReminderTargetMessage(null)}
           onSuccess={(feedbackText) => showToast(feedbackText)}
         />
+      )}
+
+      {/* ── Modal de Confirmação para Apagar Mensagem ───────────────────────── */}
+      {messageToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-card text-card-foreground w-full max-w-sm rounded-2xl p-6 shadow-2xl border border-border space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-full bg-destructive/15 text-destructive flex-shrink-0">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-base text-foreground">
+                  Apagar mensagem?
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Esta ação não pode ser desfeita.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-muted/60 text-xs border border-border/50 text-muted-foreground line-clamp-3">
+              {messageToDelete.content ||
+                (messageToDelete.file_name
+                  ? `📎 ${messageToDelete.file_name}`
+                  : "Mensagem com anexo")}
+            </div>
+
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              A mensagem será apagada para você e para todas as pessoas nesta conversa.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setMessageToDelete(null)}
+                className="h-9 px-4 rounded-xl"
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => handleDeleteMessage(messageToDelete)}
+                className="h-9 px-4 rounded-xl gap-1.5 font-medium"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span>Apagar para todos</span>
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Toast de Feedback Rápido ────────────────────────────────────────── */}
