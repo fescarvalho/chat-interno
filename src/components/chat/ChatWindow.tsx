@@ -27,6 +27,10 @@ import {
   ChevronUp,
   Check,
   CheckCheck,
+  Copy,
+  Pin,
+  PinOff,
+  UploadCloud,
 } from "lucide-react";
 import { LinkPreview } from "@/components/chat/LinkPreview";
 import { ImageLightbox } from "@/components/chat/ImageLightbox";
@@ -65,6 +69,28 @@ export function ChatWindow({ chat }: ChatWindowProps) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [readMessageIds, setReadMessageIds] = useState<Set<string>>(new Set());
   const [typingUser, setTypingUser] = useState<string | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [currentPinIndex, setCurrentPinIndex] = useState(0);
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(`chatpc_pinned_${chat.id}`);
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  const dragCounterRef = useRef(0);
+
+  // Atualiza as mensagens fixadas ao alternar de chat
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`chatpc_pinned_${chat.id}`);
+      setPinnedIds(saved ? new Set(JSON.parse(saved)) : new Set());
+      setCurrentPinIndex(0);
+    } catch {}
+  }, [chat.id]);
 
   const { user } = useAuthStore();
   const { currentUserProfile, loadMoreMessages } = useChatStore();
@@ -316,17 +342,111 @@ export function ChatWindow({ chat }: ChatWindowProps) {
 
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setIsDragging(false);
+    dragCounterRef.current = 0;
     if (e.dataTransfer.files?.length > 0) {
       await handleFileUpload(e.dataTransfer.files);
     }
   };
 
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current += 1;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  // ── Colar imagem/print da Área de Transferência (Ctrl+V) ─────────────────
   const handlePaste = async (e: React.ClipboardEvent) => {
-    const files = Array.from(e.clipboardData.files || []);
-    if (files.length > 0) {
+    const items = e.clipboardData?.items;
+    const filesToUpload: File[] = [];
+
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.indexOf("image") !== -1) {
+          const blob = item.getAsFile();
+          if (blob) {
+            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+            filesToUpload.push(
+              new File([blob], `print_${timestamp}.png`, {
+                type: blob.type || "image/png",
+              })
+            );
+          }
+        }
+      }
+    }
+
+    if (filesToUpload.length === 0 && e.clipboardData.files?.length > 0) {
+      filesToUpload.push(...Array.from(e.clipboardData.files));
+    }
+
+    if (filesToUpload.length > 0) {
       e.preventDefault();
-      await handleFileUpload(files);
+      await handleFileUpload(filesToUpload);
+    }
+  };
+
+  // ── Copiar texto da mensagem ─────────────────────────────────────────────
+  const handleCopyMessage = async (msg: Message) => {
+    if (!msg.content) return;
+    try {
+      await navigator.clipboard.writeText(msg.content);
+      setCopiedMessageId(msg.id);
+      setTimeout(() => setCopiedMessageId(null), 2000);
+    } catch (err) {
+      console.error("Falha ao copiar texto:", err);
+    }
+  };
+
+  // ── Fixar / Desafixar mensagem ───────────────────────────────────────────
+  const togglePinMessage = (msgId: string) => {
+    setPinnedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(msgId)) {
+        next.delete(msgId);
+      } else {
+        next.add(msgId);
+      }
+      try {
+        localStorage.setItem(
+          `chatpc_pinned_${chat.id}`,
+          JSON.stringify(Array.from(next))
+        );
+      } catch {}
+      return next;
+    });
+  };
+
+  // Mensagens fixadas encontradas no histórico do chat
+  const pinnedMessages = chat.messages.filter((m) => pinnedIds.has(m.id));
+
+  // Rola suavemente até a mensagem fixada e destaca visualmente
+  const scrollToMessage = (messageId: string) => {
+    const el = document.getElementById(`msg-${messageId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightedMessageId(messageId);
+      setTimeout(() => setHighlightedMessageId(null), 2500);
     }
   };
 
@@ -334,14 +454,9 @@ export function ChatWindow({ chat }: ChatWindowProps) {
   return (
     <div
       className="flex flex-col h-full flex-1 min-h-0 bg-background relative"
-      onDragOver={(e) => {
-        e.preventDefault();
-        setIsDragging(true);
-      }}
-      onDragLeave={(e) => {
-        e.preventDefault();
-        setIsDragging(false);
-      }}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
       onDrop={onDrop}
       onPaste={handlePaste}
     >
@@ -350,22 +465,25 @@ export function ChatWindow({ chat }: ChatWindowProps) {
         <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
       )}
 
-      {/* ── Overlay de Drag & Drop ────────────────────────────────────────── */}
+      {/* ── Overlay de Drag & Drop (sem flicker) ──────────────────────────── */}
       {isDragging && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm border-2 border-dashed border-primary m-4 rounded-xl">
-          <div className="text-center space-y-4">
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/85 backdrop-blur-sm border-2 border-dashed border-primary m-4 rounded-2xl pointer-events-none transition-all">
+          <div className="text-center space-y-3 p-8 bg-card rounded-2xl shadow-2xl border border-border/70">
             <div className="mx-auto w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center animate-bounce">
-              <Paperclip className="h-8 w-8 text-primary" />
+              <UploadCloud className="h-8 w-8 text-primary" />
             </div>
-            <h2 className="text-xl font-bold text-primary">
+            <h2 className="text-lg font-bold text-foreground">
               Solte os arquivos aqui para enviar
             </h2>
+            <p className="text-xs text-muted-foreground">
+              Fotos, documentos, PDFs e planilhas
+            </p>
           </div>
         </div>
       )}
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
-      <div className="h-16 flex items-center justify-between px-6 border-b bg-background z-10 shadow-sm">
+      <div className="h-16 flex items-center justify-between px-6 border-b bg-background z-10 shadow-sm flex-shrink-0">
         <div className="flex items-center gap-3">
           <Avatar className="h-10 w-10 border">
             <AvatarFallback>
@@ -391,6 +509,64 @@ export function ChatWindow({ chat }: ChatWindowProps) {
           </Button>
         </div>
       </div>
+
+      {/* ── Barra de Mensagens Fixadas (Pinned Messages) ───────────────────── */}
+      {pinnedMessages.length > 0 && (() => {
+        const activePinned =
+          pinnedMessages[currentPinIndex % pinnedMessages.length] ||
+          pinnedMessages[0];
+        const isMePinned = activePinned.sender_id === user?.id;
+        const senderName = isMePinned
+          ? "Você"
+          : (chat.participants.find((p) => p.id === activePinned.sender_id)
+              ?.name || chat.name || "Contato");
+
+        return (
+          <div className="bg-muted/70 backdrop-blur border-b border-border/50 px-4 py-2 flex items-center justify-between gap-3 text-xs z-20 shadow-sm select-none flex-shrink-0">
+            <div
+              className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer hover:opacity-85 transition-opacity"
+              onClick={() => scrollToMessage(activePinned.id)}
+              title="Clique para ir até a mensagem fixada"
+            >
+              <Pin className="h-3.5 w-3.5 text-amber-500 fill-amber-500 flex-shrink-0 -rotate-45" />
+              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                <span className="font-semibold text-primary flex-shrink-0">
+                  {senderName}:
+                </span>
+                <span className="text-foreground/80 truncate">
+                  {activePinned.content ||
+                    (activePinned.file_name
+                      ? `📎 ${activePinned.file_name}`
+                      : "Anexo")}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              {pinnedMessages.length > 1 && (
+                <button
+                  onClick={() =>
+                    setCurrentPinIndex(
+                      (prev) => (prev + 1) % pinnedMessages.length
+                    )
+                  }
+                  className="px-1.5 py-0.5 rounded text-[10px] bg-background/80 hover:bg-background text-muted-foreground border border-border/50 transition-colors"
+                  title="Alternar entre mensagens fixadas"
+                >
+                  {(currentPinIndex % pinnedMessages.length) + 1}/
+                  {pinnedMessages.length}
+                </button>
+              )}
+              <button
+                onClick={() => togglePinMessage(activePinned.id)}
+                className="p-1 rounded-full hover:bg-muted text-muted-foreground transition-colors"
+                title="Desafixar mensagem"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Lista de Mensagens ────────────────────────────────────────────── */}
       <div
@@ -431,32 +607,86 @@ export function ChatWindow({ chat }: ChatWindowProps) {
             return (
               <div
                 key={msg.id}
+                id={`msg-${msg.id}`}
                 className={cn(
-                  "group flex flex-col gap-1 max-w-[85%] sm:max-w-[75%]",
+                  "group flex flex-col gap-1 max-w-[85%] sm:max-w-[75%] transition-all",
                   isMe ? "ml-auto items-end" : "mr-auto items-start"
                 )}
               >
                 <div className="relative group/msg w-fit max-w-full">
-                  {/* Botão de responder (aparece no hover) */}
-                  <button
-                    onClick={() => setReplyTo(msg)}
-                    title="Responder"
+                  {/* Barra de ações rápidas (aparece no hover) */}
+                  <div
                     className={cn(
-                      "absolute top-2 p-1.5 rounded-full bg-muted/80 hover:bg-muted text-muted-foreground",
-                      "opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10",
-                      isMe ? "-left-9" : "-right-9"
+                      "absolute top-1 flex items-center gap-0.5 p-1 rounded-full bg-background/90 backdrop-blur border border-border shadow-md opacity-0 group-hover:opacity-100 transition-opacity z-10",
+                      isMe ? "-left-24" : "-right-24"
                     )}
                   >
-                    <CornerUpLeft className="h-3.5 w-3.5" />
-                  </button>
+                    {/* Botão de responder */}
+                    <button
+                      onClick={() => setReplyTo(msg)}
+                      title="Responder"
+                      className="p-1 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <CornerUpLeft className="h-3.5 w-3.5" />
+                    </button>
+
+                    {/* Botão de copiar (se houver texto) */}
+                    {msg.content && (
+                      <button
+                        onClick={() => handleCopyMessage(msg)}
+                        title={
+                          copiedMessageId === msg.id
+                            ? "Copiado!"
+                            : "Copiar texto"
+                        }
+                        className={cn(
+                          "p-1 rounded-full transition-colors",
+                          copiedMessageId === msg.id
+                            ? "bg-emerald-500 text-white"
+                            : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {copiedMessageId === msg.id ? (
+                          <Check className="h-3.5 w-3.5" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    )}
+
+                    {/* Botão de fixar / desafixar */}
+                    <button
+                      onClick={() => togglePinMessage(msg.id)}
+                      title={
+                        pinnedIds.has(msg.id)
+                          ? "Desafixar do topo"
+                          : "Fixar no topo"
+                      }
+                      className={cn(
+                        "p-1 rounded-full transition-colors",
+                        pinnedIds.has(msg.id)
+                          ? "text-amber-500 hover:bg-amber-500/10"
+                          : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <Pin
+                        className={cn(
+                          "h-3.5 w-3.5",
+                          pinnedIds.has(msg.id) && "fill-amber-500"
+                        )}
+                      />
+                    </button>
+                  </div>
 
                   {/* Balão da mensagem */}
                   <div
                     className={cn(
-                      "flex flex-col gap-1.5 rounded-2xl px-4 py-2.5 text-sm shadow-sm min-w-[80px] w-fit max-w-full",
+                      "flex flex-col gap-1.5 rounded-2xl px-4 py-2.5 text-sm shadow-sm min-w-[80px] w-fit max-w-full transition-all duration-300",
                       isMe
                         ? "bg-primary text-primary-foreground rounded-br-none"
-                        : "bg-muted text-foreground rounded-bl-none"
+                        : "bg-muted text-foreground rounded-bl-none",
+                      highlightedMessageId === msg.id &&
+                        "ring-4 ring-amber-400 ring-offset-2 scale-[1.02]"
                     )}
                   >
                     {/* Contexto de resposta (dentro do balão) */}
@@ -565,15 +795,18 @@ export function ChatWindow({ chat }: ChatWindowProps) {
                         ) : null;
                       })()}
 
-                    {/* Horário + indicador de leitura */}
+                    {/* Horário + indicador de leitura + pin */}
                     <span
                       className={cn(
-                        "text-[10px] opacity-70 flex items-center justify-end gap-1 select-none",
+                        "text-[10px] opacity-70 flex items-center justify-end gap-1 select-none mt-0.5",
                         isMe
                           ? "text-primary-foreground"
                           : "text-muted-foreground"
                       )}
                     >
+                      {pinnedIds.has(msg.id) && (
+                        <Pin className="h-2.5 w-2.5 text-amber-400 fill-amber-400 -rotate-45" />
+                      )}
                       {new Date(msg.created_at).toLocaleTimeString([], {
                         hour: "2-digit",
                         minute: "2-digit",
