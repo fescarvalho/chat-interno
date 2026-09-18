@@ -203,6 +203,12 @@ export function ChatWindow({ chat }: ChatWindowProps) {
         ? crypto.randomUUID()
         : Math.random().toString(36).substring(2) + Date.now().toString(36);
 
+    const replySenderName = replyTo
+      ? replyTo.sender_id === user.id
+        ? "Você"
+        : (chat.participants.find((p) => p.id === replyTo.sender_id)?.name || chat.name || "Alguém")
+      : null;
+
     const tempMessage: Message = {
       id: tempId,
       chat_id: chat.id,
@@ -213,9 +219,7 @@ export function ChatWindow({ chat }: ChatWindowProps) {
       file_type: fileData?.type || null,
       reply_to_id: replyTo?.id || null,
       reply_to_content: replyTo?.content || null,
-      reply_to_sender_name: replyTo
-        ? (currentUserProfile?.name || "Alguém")
-        : null,
+      reply_to_sender_name: replySenderName,
       created_at: new Date().toISOString(),
     };
 
@@ -234,9 +238,7 @@ export function ChatWindow({ chat }: ChatWindowProps) {
       file_type: fileData?.type || null,
       reply_to_id: replyTo?.id || null,
       reply_to_content: replyTo?.content || null,
-      reply_to_sender_name: replyTo
-        ? (currentUserProfile?.name || "Alguém")
-        : null,
+      reply_to_sender_name: replySenderName,
     });
 
     if (error) console.error("Erro ao enviar mensagem:", error);
@@ -430,29 +432,11 @@ export function ChatWindow({ chat }: ChatWindowProps) {
               <div
                 key={msg.id}
                 className={cn(
-                  "group flex flex-col gap-1",
-                  isMe ? "items-end" : "items-start"
+                  "group flex flex-col gap-1 max-w-[85%] sm:max-w-[75%]",
+                  isMe ? "ml-auto items-end" : "mr-auto items-start"
                 )}
               >
-                {/* Contexto de resposta */}
-                {msg.reply_to_content && (
-                  <div
-                    className={cn(
-                      "flex items-center gap-1 text-xs text-muted-foreground max-w-[75%] px-3 py-1.5 rounded-xl border-l-2 border-primary/50 bg-muted/40",
-                      isMe && "self-end"
-                    )}
-                  >
-                    <CornerUpLeft className="h-3 w-3 flex-shrink-0 text-primary/60" />
-                    <span className="font-semibold text-primary/70 mr-1">
-                      {msg.reply_to_sender_name}:
-                    </span>
-                    <span className="truncate max-w-[200px]">
-                      {msg.reply_to_content}
-                    </span>
-                  </div>
-                )}
-
-                <div className="relative">
+                <div className="relative group/msg w-fit max-w-full">
                   {/* Botão de responder (aparece no hover) */}
                   <button
                     onClick={() => setReplyTo(msg)}
@@ -469,12 +453,33 @@ export function ChatWindow({ chat }: ChatWindowProps) {
                   {/* Balão da mensagem */}
                   <div
                     className={cn(
-                      "flex w-max max-w-[75%] flex-col gap-2 rounded-2xl px-4 py-3 text-sm shadow-sm",
+                      "flex flex-col gap-1.5 rounded-2xl px-4 py-2.5 text-sm shadow-sm min-w-[80px] w-fit max-w-full",
                       isMe
-                        ? "ml-auto bg-primary text-primary-foreground rounded-br-none"
+                        ? "bg-primary text-primary-foreground rounded-br-none"
                         : "bg-muted text-foreground rounded-bl-none"
                     )}
                   >
+                    {/* Contexto de resposta (dentro do balão) */}
+                    {msg.reply_to_content && (
+                      <div
+                        className={cn(
+                          "flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border-l-2 mb-1 min-w-[120px] max-w-full select-none",
+                          isMe
+                            ? "bg-black/15 text-primary-foreground/90 border-primary-foreground/70"
+                            : "bg-background/60 text-muted-foreground border-primary"
+                        )}
+                      >
+                        <CornerUpLeft className="h-3 w-3 flex-shrink-0 opacity-70" />
+                        <div className="min-w-0 flex-1">
+                          <span className="font-semibold mr-1">
+                            {msg.reply_to_sender_name}:
+                          </span>
+                          <span className="truncate opacity-85 inline-block max-w-[220px] align-bottom">
+                            {msg.reply_to_content}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                     {/* Imagem */}
                     {msg.file_url && isImage && (
                       <div className="relative group/img">
@@ -622,7 +627,10 @@ export function ChatWindow({ chat }: ChatWindowProps) {
             <CornerUpLeft className="h-4 w-4 text-primary flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-primary">
-                Respondendo a mensagem
+                Respondendo a{" "}
+                {replyTo.sender_id === user?.id
+                  ? "você mesmo"
+                  : (chat.participants.find((p) => p.id === replyTo.sender_id)?.name || chat.name || "mensagem")}
               </p>
               <p className="text-xs text-muted-foreground truncate mt-0.5">
                 {replyTo.content || "📎 Arquivo"}

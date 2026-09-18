@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag de versão para release (ex: v1.2.8)'
+        description: 'Tag de versão para release (ex: v1.2.9)'
         required: false
-        default: 'v1.2.8'
+        default: 'v1.2.9'
 
 jobs:
   release:
