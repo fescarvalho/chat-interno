@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useChatStore, type Message } from '@/stores/useChatStore';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { useToastStore } from '@/stores/useToastStore';
 import {
   isPermissionGranted,
   requestPermission,
@@ -10,13 +11,48 @@ import {
   registerActionTypes,
 } from '@tauri-apps/plugin-notification';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { type PluginListener } from '@tauri-apps/api/core';
 
 export function useRealtimeMessages() {
   const { addMessage, updateUserStatus } = useChatStore();
   const { user } = useAuthStore();
+  const lastNotifiedChatRef = useRef<{ chatId: string; senderId: string; time: number } | null>(null);
 
   useEffect(() => {
-    let unlistenNotif: (() => void) | undefined;
+    let unlistenNotif: PluginListener | undefined;
+    let unlistenFocus: UnlistenFn | undefined;
+
+    // Abre a conversa do chat e ativa a aba
+    const openChatFromNotification = (chatId: string, senderId?: string) => {
+      const state = useChatStore.getState();
+      const authState = useAuthStore.getState();
+
+      const existingTab = state.openTabs.find((t) => t.id === chatId);
+      if (existingTab) {
+        state.setActiveTab(chatId);
+      } else if (senderId && authState.user) {
+        const sender = state.usersList.find((u) => u.id === senderId);
+        if (sender) {
+          state.startDirectChat(authState.user.id, sender);
+        }
+      }
+    };
+
+    // ── Escuta ativação da janela via clique em notificação no Windows ─────────
+    listen('notification-window-focus', () => {
+      if (lastNotifiedChatRef.current) {
+        const { chatId, senderId, time } = lastNotifiedChatRef.current;
+        // Abre o chat se a notificação foi recebida nos últimos 2 minutos
+        if (Date.now() - time < 120000) {
+          openChatFromNotification(chatId, senderId);
+        }
+      }
+    })
+      .then((unlisten) => {
+        unlistenFocus = unlisten;
+      })
+      .catch(() => {});
 
     // ── Configuração de notificações nativas ──────────────────────────────────
     const setupNotifications = async () => {
@@ -36,7 +72,7 @@ export function useRealtimeMessages() {
           ]);
 
           unlistenNotif = await onAction((notification) => {
-            // Quando o usuário clica na notificação, traz o app para frente
+            // Quando o usuário clica na notificação nativa (suportado no Mobile)
             const appWindow = getCurrentWindow();
             appWindow.show().catch(() => {});
             appWindow.unminimize().catch(() => {});
@@ -44,18 +80,7 @@ export function useRealtimeMessages() {
 
             const extra = notification.extra as Record<string, any> | undefined;
             if (extra?.chat_id) {
-              const state = useChatStore.getState();
-              const authState = useAuthStore.getState();
-
-              const existingTab = state.openTabs.find((t) => t.id === extra.chat_id);
-              if (existingTab) {
-                state.setActiveTab(extra.chat_id);
-              } else if (extra.sender_id && authState.user) {
-                const sender = state.usersList.find((u) => u.id === extra.sender_id);
-                if (sender) {
-                  state.startDirectChat(authState.user.id, sender);
-                }
-              }
+              openChatFromNotification(extra.chat_id, extra.sender_id);
             }
           });
         }
@@ -103,18 +128,37 @@ export function useRealtimeMessages() {
             }
           }
 
-          // Notificação nativa para mensagens de outros usuários
+          // Notificação para mensagens de outros usuários
           if (!jaExiste && user && newMessage.sender_id !== user.id) {
+            const sender = useChatStore
+              .getState()
+              .usersList.find((u) => u.id === newMessage.sender_id);
+            const senderName = sender?.name ?? 'Nova mensagem';
+            const bodyText = newMessage.file_name
+              ? `📎 Anexo: ${newMessage.file_name}`
+              : newMessage.content || 'Enviou um arquivo';
+
+            // Guarda os dados da notificação para abrir a conversa imediatamente ao clicar
+            lastNotifiedChatRef.current = {
+              chatId: newMessage.chat_id,
+              senderId: newMessage.sender_id,
+              time: Date.now(),
+            };
+
+            // Exibe notificação flutuante in-app se o chat não for o que está aberto na tela
+            if (state.activeTabId !== newMessage.chat_id) {
+              useToastStore.getState().showToast({
+                chatId: newMessage.chat_id,
+                senderId: newMessage.sender_id,
+                senderName,
+                avatarUrl: sender?.avatar_url,
+                content: bodyText,
+              });
+            }
+
+            // Dispara notificação nativa do Windows
             try {
               if (await isPermissionGranted()) {
-                const sender = useChatStore
-                  .getState()
-                  .usersList.find((u) => u.id === newMessage.sender_id);
-                const senderName = sender?.name ?? 'Nova mensagem';
-                const bodyText = newMessage.file_name
-                  ? `📎 Anexo: ${newMessage.file_name}`
-                  : newMessage.content || 'Enviou um arquivo';
-
                 sendNotification({
                   title: `Nova mensagem de ${senderName}`,
                   body: bodyText,
@@ -144,8 +188,6 @@ export function useRealtimeMessages() {
       .subscribe();
 
     // ── Canal 2: Status dos usuários em tempo real ───────────────────────────
-    // IMPORTANTE: Habilite Realtime para a tabela `users` no painel do Supabase:
-    // Database → Replication → Habilitar para a tabela `users`
     const usersStatusChannel = supabase
       .channel('public:users:status')
       .on(
@@ -163,7 +205,8 @@ export function useRealtimeMessages() {
     return () => {
       supabase.removeChannel(messagesChannel);
       supabase.removeChannel(usersStatusChannel);
-      if (unlistenNotif) unlistenNotif();
+      if (unlistenFocus) unlistenFocus();
+      unlistenNotif?.unregister();
     };
   }, [addMessage, user, updateUserStatus]);
 }

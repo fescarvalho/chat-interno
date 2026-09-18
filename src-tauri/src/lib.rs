@@ -1,4 +1,4 @@
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
@@ -9,12 +9,15 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
         // Quando o usuário clica na notificação do Windows, o sistema tenta abrir uma nova
-        // instância do app. Este plugin intercepta isso e restaura a janela existente.
+        // instância do app. Este plugin intercepta isso e restaura a janela existente com foco total.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.unminimize();
+                let _ = window.set_always_on_top(true);
                 let _ = window.set_focus();
+                let _ = window.set_always_on_top(false);
+                let _ = window.emit("notification-window-focus", ());
             }
         }))
         .setup(|app| {
@@ -46,7 +49,10 @@ pub fn run() {
                     let app = tray.app_handle();
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_always_on_top(true);
                         let _ = window.set_focus();
+                        let _ = window.set_always_on_top(false);
                     }
                 }
             });
