@@ -4,6 +4,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag de versão para release (ex: v1.2.8)'
+        required: false
+        default: 'v1.2.8'
 
 jobs:
   release:
@@ -34,8 +39,10 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'ChatPC ${{ github.ref_name }}'
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: 'ChatPC ${{ inputs.tag || github.ref_name }}'
           releaseBody: 'Nova versão do ChatPC para Windows.'
           releaseDraft: false
           prerelease: false
+          retryAttempts: 5
+          uploadWorkflowArtifacts: true
