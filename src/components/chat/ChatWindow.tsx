@@ -366,9 +366,14 @@ export function ChatWindow({ chat }: ChatWindowProps) {
       togglePinMessage(msg.id);
     }
 
-    // 3. Emite broadcast para os demais no chat em tempo real
+    // 3. Emite broadcast imediato tanto no canal da conversa quanto no canal global de mensagens
     try {
       channelRef.current?.send({
+        type: "broadcast",
+        event: "delete_message",
+        payload: { message_id: msg.id, chat_id: chat.id },
+      });
+      supabase.channel("public:messages").send({
         type: "broadcast",
         event: "delete_message",
         payload: { message_id: msg.id, chat_id: chat.id },
@@ -378,16 +383,27 @@ export function ChatWindow({ chat }: ChatWindowProps) {
     }
 
     setMessageToDelete(null);
-    showToast("Mensagem apagada para todos.");
 
-    // 4. Deleta leituras e mensagem no banco Supabase
+    // 4. Se houver mensagens respondendo a esta mensagem, desvincula reply_to_id para não violar chave estrangeira
+    try {
+      await supabase
+        .from("messages")
+        .update({ reply_to_id: null })
+        .eq("reply_to_id", msg.id);
+    } catch {}
+
+    // 5. Deleta leituras da mensagem
     try {
       await supabase.from("message_reads").delete().eq("message_id", msg.id);
     } catch {}
 
+    // 6. Deleta a mensagem do banco Supabase
     const { error } = await supabase.from("messages").delete().eq("id", msg.id);
     if (error) {
-      console.warn("Erro ao deletar mensagem no banco:", error);
+      console.error("Erro ao deletar mensagem no banco:", error);
+      showToast("Aviso: Falha ao excluir no banco (" + (error.message || "Permissão negada") + ")");
+    } else {
+      showToast("Mensagem apagada para todos.");
     }
   };
 

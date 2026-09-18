@@ -43,3 +43,21 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+-- 3. Habilitar REPLICA IDENTITY FULL na tabela messages
+-- CRÍTICO: Sem isso, ao deletar um registro com RLS ativo, o Postgres não inclui
+-- as colunas antigas (como chat_id) no evento do WAL. Como a política de SELECT 
+-- depende de chat_id, o Supabase Realtime descarta o evento DELETE para os outros usuários!
+ALTER TABLE public.messages REPLICA IDENTITY FULL;
+
+-- 4. Garantir que a tabela messages esteja incluída na publicação realtime do Supabase
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+      AND tablename = 'messages'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
+  END IF;
+END $$;

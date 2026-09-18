@@ -93,7 +93,9 @@ export function useRealtimeMessages() {
 
     // ── Canal 1: Mensagens em tempo real ─────────────────────────────────────
     const messagesChannel = supabase
-      .channel('public:messages')
+      .channel('public:messages', {
+        config: { broadcast: { self: false } },
+      })
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
@@ -185,6 +187,12 @@ export function useRealtimeMessages() {
           }
         }
       )
+      .on('broadcast', { event: 'delete_message' }, (payload) => {
+        const deletedId = payload.payload?.message_id;
+        if (deletedId) {
+          useChatStore.getState().deleteMessageById(deletedId);
+        }
+      })
       .subscribe();
 
     // ── Canal 2: Status dos usuários em tempo real ───────────────────────────
